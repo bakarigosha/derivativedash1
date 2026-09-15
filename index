@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>π vs θ - Derivative Dash</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
+    text-align: center;
+    min-height: 100vh;
+  }
+  #titleScreen {
+    margin-top: 90px;
+  }
+  #startBtn {
+    padding: 10px 18px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  #gameWrap {
+    position: relative;
+    width: min(800px, calc(100vw - 24px));
+    margin: 24px auto 0;
+  }
+  canvas {
+    width: 100%;
+    height: auto;
+    background: white;
+    border: 2px solid #222;
+    display: block;
+  }
+  #quizBox {
+    position: fixed;
+    top: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    border: 2px solid #333;
+    padding: 20px;
+    z-index: 10;
+    min-width: 300px;
+  }
+  #scoreBoard {
+    position: fixed;
+    top: 10px;
+    left: 20px;
+    font-weight: bold;
+    font-size: 18px;
+  }
+  #instructions {
+    margin-top: 10px;
+    color: #444;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div id="titleScreen">
+    <h1>π vs θ - Derivative Dash</h1>
+    <p>Dodge θ and answer derivative questions.</p>
+    <button id="startBtn" type="button">Start Game</button>
+    <p>or press Space</p>
+  </div>
+
+  <div id="gameWrap" class="hidden">
+    <canvas id="gameCanvas" width="800" height="300"></canvas>
+    <div id="instructions">Space = jump</div>
+  </div>
+
+  <div id="quizBox" class="hidden">
+    <p id="questionText"></p>
+    <input type="text" id="answerInput" placeholder="Your answer" autocomplete="off" />
+    <button id="submitBtn" type="button">Submit</button>
+  </div>
+
+  <div id="scoreBoard" class="hidden">Score: 0</div>
+
+<script>
+(() => {
+  const derivativeQuestions = [
+    { question: "d/dx of x^2", answer: "2x" },
+    { question: "d/dx of sin(x)", answer: "cos(x)" },
+    { question: "d/dx of cos(x)", answer: "-sin(x)" },
+    { question: "d/dx of e^x", answer: "e^x" },
+    { question: "d/dx of ln(x)", answer: "1/x" },
+    { question: "d/dx of tan(x)", answer: "sec^2(x)" },
+    { question: "d/dx of x^4+12x^3+8x^2+x", answer: "4x^3+36x^2+16x+1" },
+    { question: "d/dx of 5x^5+17x^3+x^2", answer: "25x^4+51x^2+2x" },
+    { question: "d/dx of csc(x)", answer: "-cot(x)csc(x)" },
+    { question: "d/dx of sec(x)", answer: "sec(x)tan(x)" },
+    { question: "d/dx of 4ln(x)", answer: "4/x" },
+    { question: "d/dx of -3x^2-7x", answer: "-6x-7" }
+  ];
+
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+  const titleScreen = document.getElementById("titleScreen");
+  const gameWrap = document.getElementById("gameWrap");
+  const startBtn = document.getElementById("startBtn");
+  const scoreBoard = document.getElementById("scoreBoard");
+  const quizBox = document.getElementById("quizBox");
+  const questionText = document.getElementById("questionText");
+  const answerInput = document.getElementById("answerInput");
+  const submitBtn = document.getElementById("submitBtn");
+
+  let gameStarted = false;
+  let gameRunning = false;
+  let frame = 0;
+  let score = 0;
+  let speed = 4;
+  let nextQuestionAt = 0;
+  let animationId = null;
+  let groundOffset = 0;
+  let obstacles = [];
+
+  const pi = {
+    x: 100,
+    y: 220,
+    width: 30,
+    height: 30,
+    vy: 0,
+    gravity: 1,
+    jumpStrength: 15,
+    isJumping: false
+  };
+
+  function getRandomFrame() {
+    return frame + 500 + Math.floor(Math.random() * 300);
+  }
+
+  function startGame() {
+    if (gameStarted) return;
+
+    titleScreen.classList.add("hidden");
+    gameWrap.classList.remove("hidden");
+    scoreBoard.classList.remove("hidden");
+
+    gameStarted = true;
+    gameRunning = true;
+    frame = 0;
+    score = 0;
+    speed = 4;
+    groundOffset = 0;
+    obstacles = [];
+    pi.y = 220;
+    pi.vy = 0;
+    pi.isJumping = false;
+    nextQuestionAt = getRandomFrame();
+
+    animationId = requestAnimationFrame(gameLoop);
+  }
+
+  function drawPi() {
+    ctx.fillStyle = "#111";
+    ctx.font = "30px serif";
+    ctx.fillText("π", pi.x, pi.y + pi.height);
+  }
+
+  function drawObstacles() {
+    ctx.fillStyle = "#111";
+    ctx.font = "30px serif";
+    obstacles.forEach(ob => {
+      ob.x -= speed;
+      ctx.fillText("θ", ob.x, ob.y + 30);
+    });
+  }
+
+  function spawnObstacle() {
+    if (frame % 90 === 0) {
+      obstacles.push({ x: 800, y: 220, width: 30, height: 30 });
+    }
+  }
+
+  function handleJump() {
+    if (!pi.isJumping) return;
+
+    pi.vy -= pi.gravity;
+    pi.y -= pi.vy;
+
+    if (pi.y >= 220) {
+      pi.y = 220;
+      pi.vy = 0;
+      pi.isJumping = false;
+    }
+  }
+
+  function drawGround() {
+    ctx.fillStyle = "#ccc";
+    for (let x = -groundOffset; x < canvas.width; x += 40) {
+      ctx.fillRect(x, 250, 20, 5);
+    }
+    groundOffset += speed;
+    if (groundOffset >= 40) groundOffset = 0;
+  }
+
+  function endGame(message) {
+    gameRunning = false;
+    if (animationId) cancelAnimationFrame(animationId);
+    alert(message + "\nFinal Score: " + score);
+    window.location.reload();
+  }
+
+  function checkCollision() {
+    for (const ob of obstacles) {
+      if (
+        pi.x < ob.x + ob.width &&
+        pi.x + pi.width > ob.x &&
+        pi.y < ob.y + ob.height &&
+        pi.y + pi.height > ob.y
+      ) {
+        endGame("Game Over!");
+        return;
+      }
+    }
+  }
+
+  function showRandomQuestion() {
+    const q = derivativeQuestions[Math.floor(Math.random() * derivativeQuestions.length)];
+    questionText.textContent = q.question;
+    quizBox.dataset.answer = q.answer.toLowerCase();
+    quizBox.classList.remove("hidden");
+    answerInput.value = "";
+    answerInput.focus();
+    gameRunning = false;
+  }
+
+  function submitAnswer() {
+    if (quizBox.classList.contains("hidden")) return;
+
+    const userAnswer = answerInput.value.trim().toLowerCase().replace(/\s+/g, "");
+    const correct = quizBox.dataset.answer.replace(/\s+/g, "");
+
+    if (userAnswer === correct) {
+      speed += 1;
+      score += 100;
+      quizBox.classList.add("hidden");
+      gameRunning = true;
+      nextQuestionAt = getRandomFrame();
+    } else {
+      endGame("Wrong answer!");
+    }
+  }
+
+  startBtn.addEventListener("click", startGame);
+  submitBtn.addEventListener("click", submitAnswer);
+
+  answerInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") submitAnswer();
+  });
+
+  document.addEventListener("keydown", e => {
+    if (e.code !== "Space") return;
+    if (document.activeElement === answerInput) return;
+
+    e.preventDefault();
+
+    if (!gameStarted) {
+      startGame();
+    } else if (gameRunning && !pi.isJumping) {
+      pi.isJumping = true;
+      pi.vy = pi.jumpStrength;
+    }
+  });
+
+  function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameRunning) {
+      frame++;
+      score++;
+      scoreBoard.textContent = "Score: " + score;
+
+      drawGround();
+      drawPi();
+      handleJump();
+      drawObstacles();
+      spawnObstacle();
+      checkCollision();
+
+      obstacles = obstacles.filter(ob => ob.x + ob.width > 0);
+
+      if (frame >= nextQuestionAt) {
+        showRandomQuestion();
+      }
+    }
+
+    animationId = requestAnimationFrame(gameLoop);
+  }
+
+  // Helpful for local testing only: add ?autostart=1 to the URL.
+  if (new URLSearchParams(window.location.search).get("autostart") === "1") {
+    startGame();
+  }
+})();
+</script>
+</body>
+</html>
